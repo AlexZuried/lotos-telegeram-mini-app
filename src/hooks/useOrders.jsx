@@ -1,79 +1,45 @@
-import { useState } from 'react';
-import { ApiService } from '../api/api';
-import toast from 'react-hot-toast';
-import { useSearchParams } from 'react-router-dom';
+import { Telegram } from "@twa-dev/types"; // Ensure you have the TWA SDK
 
-const useOrders = () => {
-    const [orders, setOrders] = useState({});
-    const [searchParams] = useSearchParams();
+const createOrder = async (cartItems) => {
+  // 1. Configuration (Keep these in an .env file for 'best' practice)
+  const BOT_TOKEN = "YOUR_BOT_TOKEN";
+  const DELIVERY_CHAT_ID = "YOUR_DELIVERY_GROUP_ID";
 
-    const addToOrder = (itemId) => {
-        setOrders(prev => ({ ...prev, [itemId]: (prev[itemId] || 0) + 1 }));
-    };
+  // 2. Data Retrieval from LocalStorage
+  const userPhone = localStorage.getItem('user_phone') || "Not Provided";
+  const userAddress = localStorage.getItem('user_address') || "Pick up at store";
+  const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user?.username || "Guest";
 
-    const incrementOrder = (itemId) => {
-        setOrders(prev => ({ ...prev, [itemId]: prev[itemId] + 1 }));
-    };
-    const decrementOrder = (itemId) => {
-        setOrders(prev => {
-            const newQuantity = prev[itemId] - 1;
-            if (newQuantity > 0) {
-                return { ...prev, [itemId]: newQuantity };
-            } else {
-                const newOrders = { ...prev };
-                delete newOrders[itemId];
-                return newOrders;
-            }
-        });
-    };
+  // 3. Format Message for the Delivery Man
+  const message = `
+🚀 *NEW ORDER RECEIVED*
+-----------------------
+👤 *Customer:* @${tgUser}
+📞 *Phone:* ${userPhone}
+📍 *Address:* ${userAddress}
 
-    const updateOrder = (itemId, newQuantity) => {
-        setOrders(prev => ({ ...prev, [itemId]: newQuantity }));
-    };
+🛒 *Items:*
+${cartItems.map(item => `- ${item.name} x${item.quantity}`).join('\n')}
 
-    const confirmOrder = async (comment) => {
-        const Id = searchParams.get('id') ? searchParams.get('id'): 0;
-        const orderData = {
-            orderId: Id, // 5-digit random number
-            storeItems: Object.entries(orders).map(([menuItemId, quantity]) => ({
-                menuItemId: parseInt(menuItemId),
-                quantity
-            })),
-            comment: comment || "No comment" // Use the provided comment or a default value
-        };
+💰 *Total:* ${cartItems.reduce((acc, item) => acc + (item.price * item.quantity), 0)}
+  `;
 
-        try {
-            await ApiService.sendOrder(orderData);
-            toast.success("Заказ успешно отправлен!");
-            setOrders({});
-            return true;
-        } catch (error) {
-            toast.error("Произошла ошибка при отправке заказа.");
-            return false;
-        }
-    };
+  // 4. Direct Fetch to Telegram (The 'Ghost' Backend)
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: DELIVERY_CHAT_ID,
+        text: message,
+        parse_mode: 'Markdown'
+      })
+    });
 
-    const totalOrderCount = Object.values(orders).reduce((sum, quantity) => sum + quantity, 0);
-
-    const calculateTotalPrice = (menuItems) => {
-        return menuItems.reduce((total, item) => {
-            if (item && item.id && item.price) {
-                const quantity = orders[item.id] || 0;
-                return total + (item.price * quantity);
-            }
-            return total;
-        }, 0);
-    };
-    return {
-        orders,
-        addToOrder,
-        incrementOrder,
-        decrementOrder,
-        updateOrder,
-        confirmOrder,
-        totalOrderCount,
-        calculateTotalPrice
-    };
+    if (response.ok) {
+       window.Telegram?.WebApp?.showAlert("Order sent to delivery!");
+    }
+  } catch (error) {
+    console.error("Order Failed:", error);
+  }
 };
-
-export default useOrders;
